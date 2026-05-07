@@ -1,16 +1,18 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 enum TimerMode { work, shortBreak, longBreak }
 enum AppTab { timer, tasks, stats, history, sounds }
 
-class AppState extends ChangeNotifier {
+class AppState extends ChangeNotifier with WidgetsBindingObserver {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   String? _userId;
 
   AppState() {
+    WidgetsBinding.instance.addObserver(this);
     FirebaseAuth.instance.authStateChanges().listen((User? user) {
       if (user != null) {
         _userId = user.uid;
@@ -71,6 +73,14 @@ class AppState extends ChangeNotifier {
   bool get isRunning => _isRunning;
   int get xp => _xp;
   int get completedWorkSessions => _completedWorkSessions;
+  
+  bool _deepWorkBroke = false;
+  bool get deepWorkBroke => _deepWorkBroke;
+
+  void clearDeepWorkBroke() {
+    _deepWorkBroke = false;
+    notifyListeners();
+  }
 
   double get progress => _totalSeconds > 0 ? (_totalSeconds - _remainingSeconds) / _totalSeconds : 0.0;
 
@@ -444,7 +454,7 @@ class AppState extends ChangeNotifier {
     }
 
     if (_currentMode == TimerMode.work) {
-      _xp += 10;
+      _xp += _isDeepWorkMode ? 20 : 10; // Double XP for Deep Work
       _completedWorkSessions++;
       _syncProfileToCloud();
       
@@ -465,11 +475,41 @@ class AppState extends ChangeNotifier {
           debugPrint("Error updating tomatoCount: $e");
         }
       }
+
+      // Transition to break
+      if (_completedWorkSessions % _sessionsUntilLongBreak == 0) {
+        setMode(TimerMode.longBreak);
+      } else {
+        setMode(TimerMode.shortBreak);
+      }
+    } else {
+      // After a break, go back to work
+      setMode(TimerMode.work);
     }
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_isDeepWorkMode && _isRunning && (state == AppLifecycleState.paused || state == AppLifecycleState.inactive)) {
+      _breakDeepWork();
+    }
+  }
+
+  void _breakDeepWork() {
+    _stopTimer();
+    _remainingSeconds = _totalSeconds;
+    _xp = (_xp - 10).clamp(0, 1000000).toInt(); // Penalty
+    _deepWorkBroke = true;
+    _syncProfileToCloud();
+    notifyListeners();
+    
+    // Haptic feedback if on device
+    HapticFeedback.heavyImpact();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     super.dispose();
   }

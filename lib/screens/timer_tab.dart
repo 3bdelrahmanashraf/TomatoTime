@@ -10,6 +10,12 @@ class TimerTab extends StatelessWidget {
     final appState = context.watch<AppState>();
     final isDark = appState.isDarkMode;
 
+    if (appState.deepWorkBroke) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showDeepWorkInterruptionDialog(context, appState);
+      });
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       child: Column(
@@ -21,7 +27,7 @@ class TimerTab extends StatelessWidget {
           _buildPlayButton(appState),
           const SizedBox(height: 16),
           Text(
-            "Session #1",
+            "Session #${appState.completedWorkSessions + 1}",
             style: TextStyle(
               color: isDark ? Colors.white54 : const Color(0xFF9CA3AF),
               fontSize: 14,
@@ -496,6 +502,36 @@ class TimerTab extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+  void _showDeepWorkInterruptionDialog(BuildContext context, AppState appState) {
+    appState.clearDeepWorkBroke();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: appState.isDarkMode ? const Color(0xFF1F2937) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626)),
+            SizedBox(width: 10),
+            Text('Focus Lost!', style: TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: const Text(
+          'Deep Work mode was interrupted because you left the app. \n\n'
+          '• Timer Reset\n'
+          '• -10 XP Penalty applied',
+          style: TextStyle(fontSize: 15),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('I Understand', style: TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.bold)),
+          ),
+        ],
       ),
     );
   }

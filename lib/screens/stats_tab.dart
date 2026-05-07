@@ -20,7 +20,15 @@ class StatsTab extends StatelessWidget {
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
           color: isDark ? const Color(0xFF1F2937) : Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            if (!isDark)
+              BoxShadow(
+                color: Colors.black.withOpacity(0.03),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -28,26 +36,31 @@ class StatsTab extends StatelessWidget {
             Text(
               'Analytics',
               style: TextStyle(
-                fontSize: 24,
+                fontSize: 28,
                 fontWeight: FontWeight.bold,
-                color: isDark ? Colors.white : Colors.black87,
+                color: isDark ? Colors.white : const Color(0xFF0F172A),
+                letterSpacing: -0.5,
               ),
             ),
-            const SizedBox(height: 24),
-            Row(
-              children: [
-                Expanded(child: _buildStatCard('Total Sessions', '$totalSessions', isDark)),
-                const SizedBox(width: 16),
-                Expanded(child: _buildStatCard('Focus Hours', '${focusHours.toStringAsFixed(1)}h', isDark)),
-              ],
-            ),
             const SizedBox(height: 32),
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: _buildStatCard('Total Sessions', '$totalSessions', isDark)),
+                  const SizedBox(width: 16),
+                  Expanded(child: _buildStatCard('Focus Hours', '${focusHours.toStringAsFixed(1)}h', isDark)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 40),
             Text(
               'Last 7 Days',
               style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: isDark ? Colors.white70 : const Color(0xFF374151),
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.white : const Color(0xFF334155),
+                letterSpacing: -0.3,
               ),
             ),
             const SizedBox(height: 24),
@@ -60,10 +73,10 @@ class StatsTab extends StatelessWidget {
 
   Widget _buildStatCard(String title, String value, bool isDark) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF374151).withOpacity(0.5) : const Color(0xFFF9FAFB),
-        borderRadius: BorderRadius.circular(16),
+        color: isDark ? const Color(0xFF374151).withOpacity(0.4) : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -71,18 +84,34 @@ class StatsTab extends StatelessWidget {
           Text(
             title,
             style: TextStyle(
-              fontSize: 14,
-              color: isDark ? Colors.white60 : const Color(0xFF6B7280),
+              fontSize: 15,
+              color: isDark ? Colors.white54 : const Color(0xFF64748B),
               fontWeight: FontWeight.w500,
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : const Color(0xFF111827),
+          const SizedBox(height: 12),
+          RichText(
+            text: TextSpan(
+              children: [
+                TextSpan(
+                  text: value.replaceAll('h', ''),
+                  style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    letterSpacing: -1,
+                  ),
+                ),
+                if (value.contains('h'))
+                  TextSpan(
+                    text: ' h',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? Colors.white54 : const Color(0xFF64748B),
+                    ),
+                  ),
+              ],
             ),
           ),
         ],
@@ -91,11 +120,10 @@ class StatsTab extends StatelessWidget {
   }
 
   Widget _buildChart(List<SessionRecord> workSessions, bool isDark) {
-    final borderColor = isDark ? const Color(0xFF4B5563) : Colors.grey.shade300;
-    final gridColor = isDark ? const Color(0xFF374151) : Colors.grey.shade200;
-    final textColor = isDark ? Colors.white54 : const Color(0xFF6B7280);
+    final textColor = isDark ? Colors.white38 : const Color(0xFF94A3B8);
+    final barColor = isDark ? const Color(0xFF94A3B8) : const Color(0xFF1E293B);
+    final gridLineColor = isDark ? Colors.white10 : Colors.black.withOpacity(0.05);
 
-    // Calculate last 7 days focus hours
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     
@@ -116,92 +144,111 @@ class StatsTab extends StatelessWidget {
       dailyHours.add(hours);
     }
 
-    final maxHours = dailyHours.reduce((a, b) => a > b ? a : b);
-    // Determine Y axis max (min 4 for visual padding)
-    final yMax = maxHours > 0 ? maxHours * 1.2 : 4.0;
+    final double maxVal = dailyHours.isEmpty ? 0 : dailyHours.reduce((a, b) => a > b ? a : b);
+    final double yMax = maxVal > 0 ? (maxVal * 1.2).ceilToDouble() : 4.0;
     
     return SizedBox(
-      height: 200,
+      height: 240,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           // Y-axis labels
-          Column(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(yMax.toStringAsFixed(1), style: TextStyle(color: textColor, fontSize: 12)),
-              Text((yMax * 0.75).toStringAsFixed(2), style: TextStyle(color: textColor, fontSize: 12)),
-              Text((yMax * 0.5).toStringAsFixed(1), style: TextStyle(color: textColor, fontSize: 12)),
-              Text((yMax * 0.25).toStringAsFixed(2), style: TextStyle(color: textColor, fontSize: 12)),
-              Text('0', style: TextStyle(color: textColor, fontSize: 12)),
-              const SizedBox(height: 20), // align with bottom axis
-            ],
+          SizedBox(
+            width: 35,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                _yLabel(yMax),
+                _yLabel(yMax * 0.75),
+                _yLabel(yMax * 0.5),
+                _yLabel(yMax * 0.25),
+                _yLabel(0),
+                const SizedBox(height: 28), // align with bottom axis
+              ],
+            ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 12),
           // Chart area
           Expanded(
-            child: Stack(
+            child: Column(
               children: [
-                // Horizontal grid lines
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: List.generate(5, (index) {
-                    return Container(
-                      height: 1,
-                      color: index == 4 ? Colors.transparent : gridColor,
-                    );
-                  }),
-                ),
-                // X-axis and Bars
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                Expanded(
+                  child: Stack(
+                    children: [
+                      // Horizontal dotted lines
+                      Column(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: List.generate(5, (index) {
+                          return CustomPaint(
+                            size: const Size(double.infinity, 1),
+                            painter: DottedLinePainter(color: gridLineColor),
+                          );
+                        }),
+                      ),
+                      // Bars
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4.0),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
                           children: List.generate(daysCount, (index) {
                             final fraction = yMax > 0 ? (dailyHours[index] / yMax) : 0.0;
-                            return LayoutBuilder(
-                              builder: (context, constraints) {
-                                return Container(
-                                  width: 24,
-                                  height: constraints.maxHeight * fraction,
-                                  decoration: BoxDecoration(
-                                    color: isDark ? const Color(0xFF9CA3AF) : const Color(0xFF94A3B8),
-                                    borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
-                                  ),
-                                );
-                              }
+                            return Flexible(
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 6.0),
+                                child: LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    return Container(
+                                      constraints: const BoxConstraints(maxWidth: 32),
+                                      height: constraints.maxHeight * fraction,
+                                      decoration: BoxDecoration(
+                                        color: barColor,
+                                        borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                                      ),
+                                    );
+                                  }
+                                ),
+                              ),
                             );
                           }),
                         ),
                       ),
-                    ),
-                    Container(
-                      height: 1,
-                      color: borderColor, // bottom solid line
-                    ),
-                    const SizedBox(height: 8),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: dayLabels.map((label) {
-                          return Text(label, style: TextStyle(color: textColor, fontSize: 12));
-                        }).toList(),
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // X-axis labels
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: dayLabels.map((label) {
+                      return Expanded(
+                        child: Text(
+                          label, 
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.w500)
+                        ),
+                      );
+                    }).toList(),
+                  ),
                 ),
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _yLabel(double value) {
+    String text = value == 0 ? '0' : value.toStringAsFixed(value % 1 == 0 ? 0 : 2);
+    if (text.endsWith('.00')) text = text.substring(0, text.length - 3);
+    
+    return Text(
+      text, 
+      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12, fontWeight: FontWeight.w500)
     );
   }
 
@@ -217,4 +264,28 @@ class StatsTab extends StatelessWidget {
       default: return '';
     }
   }
+}
+
+class DottedLinePainter extends CustomPainter {
+  final Color color;
+  DottedLinePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1
+      ..style = PaintingStyle.stroke;
+
+    const double dashWidth = 3;
+    const double dashSpace = 3;
+    double startX = 0;
+    while (startX < size.width) {
+      canvas.drawLine(Offset(startX, 0), Offset(startX + dashWidth, 0), paint);
+      startX += dashWidth + dashSpace;
+    }
+  }
+
+  @override
+  bool shouldRepaint(CustomPainter oldDelegate) => false;
 }
