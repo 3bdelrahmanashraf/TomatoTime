@@ -6,6 +6,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/data/latest_all.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
+
 
 enum TimerMode { work, shortBreak, longBreak }
 
@@ -14,6 +18,8 @@ enum AppTab { timer, tasks, stats, history, sounds }
 class AppState extends ChangeNotifier with WidgetsBindingObserver {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final AudioPlayer _audioPlayer = AudioPlayer();
+  final FlutterLocalNotificationsPlugin _notificationsPlugin = FlutterLocalNotificationsPlugin();
+
   String? _userId;
   String? _selectedTaskId;
 
@@ -27,7 +33,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   AppState() {
     WidgetsBinding.instance.addObserver(this);
+    _initNotifications();
     _initAudio();
+
     _loadLocalSettings();
     FirebaseAuth.instance.authStateChanges().listen((User? user) {
       if (user != null) {
@@ -197,9 +205,23 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   void _startTimer() {
     if (_remainingSeconds > 0) {
       _isRunning = true;
+      
+      // Schedule "Finished" notification
+      String finishTitle = _currentMode == TimerMode.work ? 'Work Session Finished' : 'Break Finished';
+      String finishBody = _currentMode == TimerMode.work 
+          ? 'You Finished a work session lasted ${_totalSeconds ~/ 60} minutes' 
+          : 'A break is finished';
+      _scheduleNotification(_remainingSeconds, finishTitle, finishBody);
+
+      // Show "Ongoing" notification
+      String ongoingTitle = _currentMode == TimerMode.work ? 'Work Session' : 'Break Session';
+      String ongoingBody = 'Timer is running...';
+      _showOngoingNotification(ongoingTitle, ongoingBody);
+
       _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
         if (_remainingSeconds > 0) {
           _remainingSeconds--;
+          // We could update the ongoing notification here every minute, but let's keep it simple first
           notifyListeners();
         } else {
           _stopTimer();
@@ -214,18 +236,20 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _pauseTimer() {
-    _isRunning = false;
-    _timer?.cancel();
+    _stopTimer();
+    _cancelNotifications();
     notifyListeners();
   }
 
   void _stopTimer() {
     _isRunning = false;
     _timer?.cancel();
+    _cancelOngoingNotification();
   }
 
   void resetTimer() {
     _stopTimer();
+    _cancelNotifications();
     _remainingSeconds = _totalSeconds;
     notifyListeners();
   }
@@ -546,6 +570,128 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _initNotifications() async {
+    tz.initializeTimeZones();
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('@mipmap/launcher_icon');
+    
+    const DarwinInitializationSettings initializationSettingsIOS =
+        DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+    );
+
+    const InitializationSettings initializationSettings = InitializationSettings(
+      android: initializationSettingsAndroid,
+      iOS: initializationSettingsIOS,
+    );
+
+    await _notificationsPlugin.initialize(initializationSettings);
+
+    // Request permissions for Android 13+
+    _notificationsPlugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>()?.requestNotificationsPermission();
+  }
+
+  Future<void> _scheduleNotification(int seconds, String title, String body) async {
+    if (seconds <= 0) return;
+
+    await _notificationsPlugin.zonedSchedule(
+      0,
+      title,
+      body,
+      tz.TZDateTime.now(tz.local).add(Duration(seconds: seconds)),
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'timer_finish_channel_v3',
+          'Session Completion',
+          channelDescription: 'Alerts when a work or break session ends',
+          importance: Importance.max,
+          priority: Priority.high,
+          showWhen: true,
+          audioAttributesUsage: AudioAttributesUsage.alarm,
+          visibility: NotificationVisibility.public,
+          fullScreenIntent: true,
+          category: AndroidNotificationCategory.alarm,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+          interruptionLevel: InterruptionLevel.critical,
+        ),
+      ),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+    );
+  }
+
+  Future<void> _cancelNotifications() async {
+    await _notificationsPlugin.cancel(0);
+  }
+
+  Future<void> _showImmediateNotification(String title, String body) async {
+    await _notificationsPlugin.show(
+      0,
+      title,
+      body,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'timer_finish_channel_v3',
+          'Session Completion',
+          importance: Importance.max,
+          priority: Priority.high,
+          visibility: NotificationVisibility.public,
+          fullScreenIntent: true,
+          category: AndroidNotificationCategory.alarm,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+          interruptionLevel: InterruptionLevel.critical,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showOngoingNotification(String title, String body) async {
+    await _notificationsPlugin.show(
+      1, // Different ID from the "session ended" notification
+      title,
+      body,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          'timer_ongoing_channel_v3',
+          'Active Timer',
+          channelDescription: 'Shows the current timer progress',
+          importance: Importance.low,
+          priority: Priority.low,
+          ongoing: true,
+          onlyAlertOnce: true,
+          showWhen: true,
+          when: DateTime.now().millisecondsSinceEpoch + (_remainingSeconds * 1000),
+          usesChronometer: true,
+          chronometerCountDown: true,
+          visibility: NotificationVisibility.public,
+          category: AndroidNotificationCategory.progress,
+        ),
+        iOS: const DarwinNotificationDetails(
+          presentAlert: false,
+          presentBadge: false,
+          presentSound: false,
+          interruptionLevel: InterruptionLevel.passive,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _cancelOngoingNotification() async {
+    await _notificationsPlugin.cancel(1);
+  }
+
   Future<void> _startPlayback() async {
     final url = _soundUrls[_selectedSound];
     if (url != null) {
@@ -586,6 +732,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     if (_currentMode == TimerMode.work) {
+      _showImmediateNotification('Work Session Finished', 'You Finished a work session lasted ${_totalSeconds ~/ 60} minutes');
       _xp += _isDeepWorkMode ? 20 : 10; // Double XP for Deep Work
       _completedWorkSessions++;
 
@@ -614,6 +761,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         setMode(TimerMode.shortBreak);
       }
     } else {
+      _showImmediateNotification('Break Finished', 'A break is finished');
       // After a break, go back to work
       setMode(TimerMode.work);
     }
@@ -631,6 +779,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   void _breakDeepWork() {
     _stopTimer();
+    _cancelNotifications();
     _remainingSeconds = _totalSeconds;
     _xp = (_xp - 10).clamp(0, 1000000).toInt(); // Penalty
     _deepWorkBroke = true;
