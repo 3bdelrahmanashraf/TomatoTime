@@ -10,9 +10,14 @@ class StatsTab extends StatelessWidget {
     final appState = context.watch<AppState>();
     final isDark = appState.isDarkMode;
 
-    final workSessions = appState.history.where((s) => s.mode == TimerMode.work).toList();
+    final workSessions = appState.history
+        .where((s) => s.mode == TimerMode.work)
+        .toList();
     final totalSessions = workSessions.length;
-    final focusHours = workSessions.fold<double>(0, (sum, s) => sum + (s.durationMinutes / 60));
+    final focusHours = workSessions.fold<double>(
+      0,
+      (sum, s) => sum + (s.durationMinutes / 60),
+    );
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
@@ -47,9 +52,21 @@ class StatsTab extends StatelessWidget {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(child: _buildStatCard('Total Sessions', '$totalSessions', isDark)),
+                  Expanded(
+                    child: _buildStatCard(
+                      'Total Sessions',
+                      '$totalSessions',
+                      isDark,
+                    ),
+                  ),
                   const SizedBox(width: 16),
-                  Expanded(child: _buildStatCard('Focus Hours', '${focusHours.toStringAsFixed(1)}h', isDark)),
+                  Expanded(
+                    child: _buildStatCard(
+                      'Focus Hours',
+                      '${focusHours.toStringAsFixed(1)}h',
+                      isDark,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -75,7 +92,9 @@ class StatsTab extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF374151).withOpacity(0.4) : const Color(0xFFF8FAFC),
+        color: isDark
+            ? const Color(0xFF374151).withOpacity(0.4)
+            : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
@@ -122,11 +141,13 @@ class StatsTab extends StatelessWidget {
   Widget _buildChart(List<SessionRecord> workSessions, bool isDark) {
     final textColor = isDark ? Colors.white38 : const Color(0xFF94A3B8);
     final barColor = isDark ? const Color(0xFF94A3B8) : const Color(0xFF1E293B);
-    final gridLineColor = isDark ? Colors.white10 : Colors.black.withOpacity(0.05);
+    final gridLineColor = isDark
+        ? Colors.white10
+        : Colors.black.withOpacity(0.05);
 
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    
+
     final List<String> dayLabels = [];
     final List<double> dailyHours = [];
 
@@ -134,19 +155,24 @@ class StatsTab extends StatelessWidget {
     for (int i = daysCount - 1; i >= 0; i--) {
       final date = today.subtract(Duration(days: i));
       dayLabels.add(_getShortWeekday(date.weekday));
-      
+
       final daySessions = workSessions.where((s) {
         final sDate = DateTime(s.date.year, s.date.month, s.date.day);
         return sDate.isAtSameMomentAs(date);
       });
-      
-      final hours = daySessions.fold<double>(0, (sum, s) => sum + (s.durationMinutes / 60));
+
+      final hours = daySessions.fold<double>(
+        0,
+        (sum, s) => sum + (s.durationMinutes / 60),
+      );
       dailyHours.add(hours);
     }
 
-    final double maxVal = dailyHours.isEmpty ? 0 : dailyHours.reduce((a, b) => a > b ? a : b);
+    final double maxVal = dailyHours.isEmpty
+        ? 0
+        : dailyHours.reduce((a, b) => a > b ? a : b);
     final double yMax = maxVal > 0 ? (maxVal * 1.2).ceilToDouble() : 4.0;
-    
+
     return SizedBox(
       height: 240,
       child: Row(
@@ -193,21 +219,30 @@ class StatsTab extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.end,
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
                           children: List.generate(daysCount, (index) {
-                            final fraction = yMax > 0 ? (dailyHours[index] / yMax) : 0.0;
+                            final fraction = yMax > 0
+                                ? (dailyHours[index] / yMax)
+                                : 0.0;
                             return Flexible(
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 6.0),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6.0,
+                                ),
                                 child: LayoutBuilder(
                                   builder: (context, constraints) {
                                     return Container(
-                                      constraints: const BoxConstraints(maxWidth: 32),
+                                      constraints: const BoxConstraints(
+                                        maxWidth: 32,
+                                      ),
                                       height: constraints.maxHeight * fraction,
                                       decoration: BoxDecoration(
                                         color: barColor,
-                                        borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                                        borderRadius:
+                                            const BorderRadius.vertical(
+                                              top: Radius.circular(6),
+                                            ),
                                       ),
                                     );
-                                  }
+                                  },
                                 ),
                               ),
                             );
@@ -226,9 +261,13 @@ class StatsTab extends StatelessWidget {
                     children: dayLabels.map((label) {
                       return Expanded(
                         child: Text(
-                          label, 
+                          label,
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.w500)
+                          style: TextStyle(
+                            color: textColor,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       );
                     }).toList(),
@@ -243,25 +282,39 @@ class StatsTab extends StatelessWidget {
   }
 
   Widget _yLabel(double value) {
-    String text = value == 0 ? '0' : value.toStringAsFixed(value % 1 == 0 ? 0 : 2);
+    String text = value == 0
+        ? '0'
+        : value.toStringAsFixed(value % 1 == 0 ? 0 : 2);
     if (text.endsWith('.00')) text = text.substring(0, text.length - 3);
-    
+
     return Text(
-      text, 
-      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12, fontWeight: FontWeight.w500)
+      text,
+      style: const TextStyle(
+        color: Color(0xFF94A3B8),
+        fontSize: 12,
+        fontWeight: FontWeight.w500,
+      ),
     );
   }
 
   String _getShortWeekday(int weekday) {
     switch (weekday) {
-      case 1: return 'Mon';
-      case 2: return 'Tue';
-      case 3: return 'Wed';
-      case 4: return 'Thu';
-      case 5: return 'Fri';
-      case 6: return 'Sat';
-      case 7: return 'Sun';
-      default: return '';
+      case 1:
+        return 'Mon';
+      case 2:
+        return 'Tue';
+      case 3:
+        return 'Wed';
+      case 4:
+        return 'Thu';
+      case 5:
+        return 'Fri';
+      case 6:
+        return 'Sat';
+      case 7:
+        return 'Sun';
+      default:
+        return '';
     }
   }
 }

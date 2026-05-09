@@ -22,7 +22,6 @@ class HomeScreen extends StatelessWidget {
         child: Column(
           children: [
             _buildHeader(context, appState, isDark),
-            _buildTabBar(context, appState, isDark),
             Expanded(
               child: IndexedStack(
                 index: appState.currentTab.index,
@@ -38,6 +37,23 @@ class HomeScreen extends StatelessWidget {
           ],
         ),
       ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: appState.currentTab.index,
+        onTap: (index) => appState.setTab(AppTab.values[index]),
+        type: BottomNavigationBarType.fixed,
+        backgroundColor: isDark ? const Color(0xFF1F2937) : Colors.white,
+        selectedItemColor: isDark ? Colors.white : const Color(0xFF111827),
+        unselectedItemColor: isDark ? Colors.white38 : Colors.grey,
+        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+        unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.play_arrow_rounded), label: 'Timer'),
+          BottomNavigationBarItem(icon: Icon(Icons.format_list_bulleted_rounded), label: 'Tasks'),
+          BottomNavigationBarItem(icon: Icon(Icons.bar_chart_rounded), label: 'Stats'),
+          BottomNavigationBarItem(icon: Icon(Icons.history_rounded), label: 'History'),
+          BottomNavigationBarItem(icon: Icon(Icons.music_note_rounded), label: 'Sounds'),
+        ],
+      ),
     );
   }
 
@@ -47,32 +63,37 @@ class HomeScreen extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'TomatoTime',
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: isDark ? Colors.white : const Color(0xFF0F172A),
-                  letterSpacing: -0.5,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'TomatoTime',
+                    style: TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                      letterSpacing: -0.8,
+                    ),
+                  ),
                 ),
-              ),
-              SizedBox(
-                width: MediaQuery.of(context).size.width * 0.6,
-                child: Text(
-                  'Welcome back, ${FirebaseAuth.instance.currentUser?.displayName ?? 'User'}!',
-                  style: const TextStyle(
-                    fontSize: 13,
+                const SizedBox(height: 2),
+                Text(
+                  'Welcome ${FirebaseAuth.instance.currentUser?.displayName ?? 'User'}',
+                  style: TextStyle(
+                    fontSize: 12,
                     fontWeight: FontWeight.w500,
-                    color: Color(0xFF3B82F6),
+                    color: isDark ? Colors.white60 : const Color(0xFF64748B),
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           Row(
             children: [
@@ -83,13 +104,13 @@ class HomeScreen extends StatelessWidget {
                 },
                 isDark: isDark,
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               _HeaderIconButton(
                 icon: appState.isDarkMode ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
                 onPressed: appState.toggleDarkMode,
                 isDark: isDark,
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               _HeaderIconButton(
                 icon: Icons.settings_outlined,
                 onPressed: () {

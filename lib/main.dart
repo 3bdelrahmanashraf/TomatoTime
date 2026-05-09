@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tomato_time/providers/app_state.dart';
 import 'package:tomato_time/screens/home_screen.dart';
 import 'package:tomato_time/screens/login_screen.dart';
@@ -72,7 +73,18 @@ class _AuthWrapperState extends State<AuthWrapper> {
   @override
   void initState() {
     super.initState();
+    _checkPersistence();
     _authStream = FirebaseAuth.instance.authStateChanges();
+  }
+
+  Future<void> _checkPersistence() async {
+    final prefs = await SharedPreferences.getInstance();
+    final staySignedIn = prefs.getBool('stay_signed_in') ?? true;
+    if (!staySignedIn && FirebaseAuth.instance.currentUser != null) {
+      await FirebaseAuth.instance.signOut();
+      // We don't reset the flag here because we want it to apply to the NEXT session too if they don't check it again.
+      // Actually, once they log in, the flag is updated in login_screen.dart.
+    }
   }
 
   @override

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -40,6 +41,9 @@ class _SignupScreenState extends State<SignupScreen> {
         'email': _emailController.text.trim(),
         'createdAt': FieldValue.serverTimestamp(),
       });
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('stay_signed_in', true);
 
       // Navigation is handled by auth state stream in main.dart
       if (mounted) Navigator.pop(context);

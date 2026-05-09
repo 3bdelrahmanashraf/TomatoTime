@@ -20,6 +20,8 @@ class TimerTab extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       child: Column(
         children: [
+          _buildTaskSelector(context, appState, isDark),
+          const SizedBox(height: 24),
           _buildModeSelector(context, appState, isDark),
           const SizedBox(height: 40),
           _buildTimerCircle(context, appState),
@@ -337,10 +339,9 @@ class TimerTab extends StatelessWidget {
 
   Widget _buildProgressCard(BuildContext context, bool isDark) {
     final appState = context.watch<AppState>();
-    final int level = (appState.xp ~/ 100) + 1;
-    final int currentLevelXp = appState.xp % 100;
-    final double progressValue = currentLevelXp / 100.0;
-    final int xpToNext = 100 - currentLevelXp;
+    final int level = appState.currentLevel;
+    final double progressValue = appState.levelProgress;
+    final int xpToNext = appState.xpToNextLevel;
 
     // Calculate Streak
     final Set<String> activeDays = {};
@@ -460,33 +461,25 @@ class TimerTab extends StatelessWidget {
   }
 
   Widget _buildBadgeItem(IconData icon, String label, bool isActive, bool isDark) {
-    final bgColor = isActive 
-        ? (isDark ? const Color(0xFF422006) : const Color(0xFFFEF3C7))
-        : (isDark ? const Color(0xFF111827) : const Color(0xFFF8FAFC));
-    
-    final borderColor = isActive
-        ? (isDark ? const Color(0xFFCA8A04) : const Color(0xFFFDE047))
-        : Colors.transparent;
-
-    final iconColor = isActive
-        ? (isDark ? const Color(0xFFFACC15) : const Color(0xFFEAB308))
-        : (isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1));
-
-    final textColor = isActive
-        ? (isDark ? Colors.white : const Color(0xFF0F172A))
-        : (isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8));
-
+    // ... (rest of badge code)
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
-          color: bgColor,
+          color: isActive 
+              ? (isDark ? const Color(0xFF422006) : const Color(0xFFFEF3C7))
+              : (isDark ? const Color(0xFF111827) : const Color(0xFFF8FAFC)),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: borderColor, width: 1.5),
+          border: Border.all(
+            color: isActive
+                ? (isDark ? const Color(0xFFCA8A04) : const Color(0xFFFDE047))
+                : Colors.transparent,
+            width: 1.5,
+          ),
         ),
         child: Row(
           children: [
-            Icon(icon, size: 20, color: iconColor),
+            Icon(icon, size: 20, color: isActive ? (isDark ? const Color(0xFFFACC15) : const Color(0xFFEAB308)) : (isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1))),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -494,7 +487,7 @@ class TimerTab extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: isActive ? FontWeight.w500 : FontWeight.normal,
-                  color: textColor,
+                  color: isActive ? (isDark ? Colors.white : const Color(0xFF0F172A)) : (isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8)),
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -503,6 +496,171 @@ class TimerTab extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildTaskSelector(BuildContext context, AppState appState, bool isDark) {
+    final selectedTask = appState.selectedTask;
+    
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1F2937) : Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          if (!isDark)
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'CURRENT TASK',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.blueAccent : const Color(0xFF64748B).withOpacity(0.8),
+                  letterSpacing: 0.8,
+                ),
+              ),
+              if (selectedTask != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white10 : const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    children: [
+                      Text(
+                        '${selectedTask.tomatoCount} ',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : const Color(0xFF334155),
+                        ),
+                      ),
+                      const Text('🍅', style: TextStyle(fontSize: 13)),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          InkWell(
+            onTap: () => _showTaskSelectionDialog(context, appState),
+            borderRadius: BorderRadius.circular(8),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.play_arrow_outlined,
+                  color: isDark ? Colors.white : Colors.black87,
+                  size: 26,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    selectedTask?.title ?? 'Select a task to start',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showTaskSelectionDialog(BuildContext context, AppState appState) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: appState.isDarkMode ? const Color(0xFF111827) : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        final tasks = appState.tasks.where((t) => !t.isCompleted).toList();
+        return Container(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Select Task',
+                style: TextStyle(
+                  fontSize: 22, 
+                  fontWeight: FontWeight.bold,
+                  color: appState.isDarkMode ? Colors.white : const Color(0xFF0F172A),
+                ),
+              ),
+              const SizedBox(height: 20),
+              if (tasks.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 32),
+                  child: Center(
+                    child: Text(
+                      'No active tasks. Create one in Tasks tab!',
+                      style: TextStyle(color: appState.isDarkMode ? Colors.white60 : Colors.black54),
+                    ),
+                  ),
+                )
+              else
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: tasks.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final task = tasks[index];
+                      final isSelected = task.id == appState.selectedTaskId;
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          task.title,
+                          style: TextStyle(
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            color: appState.isDarkMode ? Colors.white : const Color(0xFF0F172A),
+                          ),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('${task.tomatoCount} 🍅', style: const TextStyle(fontSize: 14)),
+                            if (isSelected) ...[
+                              const SizedBox(width: 12),
+                              const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                            ],
+                          ],
+                        ),
+                        onTap: () {
+                          appState.setSelectedTask(task.id);
+                          Navigator.pop(context);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              const SizedBox(height: 24),
+            ],
+          ),
+        );
+      },
     );
   }
   void _showDeepWorkInterruptionDialog(BuildContext context, AppState appState) {

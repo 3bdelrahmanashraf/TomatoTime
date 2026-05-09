@@ -3,16 +3,32 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:audio_session/audio_session.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 enum TimerMode { work, shortBreak, longBreak }
+
 enum AppTab { timer, tasks, stats, history, sounds }
 
 class AppState extends ChangeNotifier with WidgetsBindingObserver {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final AudioPlayer _audioPlayer = AudioPlayer();
   String? _userId;
+  String? _selectedTaskId;
+
+  static const Map<String, String> _soundUrls = {
+    'Lo-Fi Beats':
+        'https://cdn.pixabay.com/audio/2022/05/27/audio_1808fbf07a.mp3',
+    'Rain': 'https://cdn.pixabay.com/audio/2025/03/24/audio_8b6ffc7087.mp3',
+    'White Noise':
+        'https://cdn.pixabay.com/audio/2025/06/28/audio_08a82f21bf.mp3',
+  };
 
   AppState() {
     WidgetsBinding.instance.addObserver(this);
+    _initAudio();
+    _loadLocalSettings();
     FirebaseAuth.instance.authStateChanges().listen((User? user) {
       if (user != null) {
         _userId = user.uid;
@@ -25,6 +41,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         _xp = 0;
         _completedWorkSessions = 0;
         _stopTimer();
+        _audioPlayer.stop();
+        _isPlayingSound = false;
         notifyListeners();
       }
     });
@@ -35,6 +53,14 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   void setTab(AppTab tab) {
     _currentTab = tab;
+    notifyListeners();
+  }
+
+  String? get selectedTaskId => _selectedTaskId;
+  TodoTask? get selectedTask => _selectedTaskId == null ? null : _tasks.firstWhere((t) => t.id == _selectedTaskId, orElse: () => _tasks.first);
+
+  void setSelectedTask(String? id) {
+    _selectedTaskId = id;
     notifyListeners();
   }
 
@@ -73,7 +99,42 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   bool get isRunning => _isRunning;
   int get xp => _xp;
   int get completedWorkSessions => _completedWorkSessions;
-  
+
+  // Leveling system
+  int get currentLevel {
+    int lvl = 1;
+    int xpRemaining = _xp;
+    while (xpRemaining >= xpRequiredForLevel(lvl)) {
+      xpRemaining -= xpRequiredForLevel(lvl);
+      lvl++;
+    }
+    return lvl;
+  }
+
+  int get xpInCurrentLevel {
+    int lvl = 1;
+    int xpRemaining = _xp;
+    while (xpRemaining >= xpRequiredForLevel(lvl)) {
+      xpRemaining -= xpRequiredForLevel(lvl);
+      lvl++;
+    }
+    return xpRemaining;
+  }
+
+  int xpRequiredForLevel(int level) {
+    // Base 100 XP, increases by 50 for each level
+    return 100 + (level - 1) * 50;
+  }
+
+  double get levelProgress {
+    int required = xpRequiredForLevel(currentLevel);
+    return xpInCurrentLevel / required;
+  }
+
+  int get xpToNextLevel {
+    return xpRequiredForLevel(currentLevel) - xpInCurrentLevel;
+  }
+
   bool _deepWorkBroke = false;
   bool get deepWorkBroke => _deepWorkBroke;
 
@@ -82,14 +143,22 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  double get progress => _totalSeconds > 0 ? (_totalSeconds - _remainingSeconds) / _totalSeconds : 0.0;
+  double get progress => _totalSeconds > 0
+      ? (_totalSeconds - _remainingSeconds) / _totalSeconds
+      : 0.0;
 
-  void updateSettings({double? work, double? shortBreak, double? longBreak, int? sessions}) {
+  void updateSettings({
+    double? work,
+    double? shortBreak,
+    double? longBreak,
+    int? sessions,
+  }) {
     if (work != null) _workDuration = work;
     if (shortBreak != null) _shortBreakDuration = shortBreak;
     if (longBreak != null) _longBreakDuration = longBreak;
     if (sessions != null) _sessionsUntilLongBreak = sessions;
-    
+
+    _saveLocalSettings();
     // Refresh current timer if not running (or reset it)
     if (!_isRunning) {
       setMode(_currentMode);
@@ -101,7 +170,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   void setMode(TimerMode mode) {
     _currentMode = mode;
     _stopTimer();
-    
+
     switch (mode) {
       case TimerMode.work:
         _totalSeconds = (_workDuration * 60).toInt();
@@ -163,12 +232,14 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   void toggleDeepWorkMode() {
     _isDeepWorkMode = !_isDeepWorkMode;
+    _saveLocalSettings();
     _syncProfileToCloud();
     notifyListeners();
   }
 
   void toggleDarkMode() {
     _isDarkMode = !_isDarkMode;
+    _saveLocalSettings();
     _syncProfileToCloud();
     notifyListeners();
   }
@@ -176,7 +247,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   // Tasks state
   List<TodoTask> _tasks = [];
   List<TodoTask> get tasks => _tasks;
-  
+
   static bool _hasGenerated = false;
 
   Future<void> _loadDataFromCloud() async {
@@ -196,9 +267,10 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         _isDeepWorkMode = data['isDeepWorkMode'] ?? false;
         _selectedSound = data['selectedSound'] ?? 'Lo-Fi Beats';
         _soundVolume = data['soundVolume'] ?? 0.5;
-        
+
+        _saveLocalSettings();
         if (!_isRunning) {
-           setMode(_currentMode); // Update timer based on loaded settings
+          setMode(_currentMode); // Update timer based on loaded settings
         }
       }
 
@@ -208,7 +280,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
           .doc(_userId)
           .collection('tasks')
           .get();
-      _tasks = tasksSnapshot.docs.map((doc) => TodoTask.fromMap(doc.data(), doc.id)).toList();
+      _tasks = tasksSnapshot.docs
+          .map((doc) => TodoTask.fromMap(doc.data(), doc.id))
+          .toList();
 
       // Load history
       final historySnapshot = await _firestore
@@ -217,8 +291,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
           .collection('history')
           .orderBy('date', descending: false)
           .get();
-      _history = historySnapshot.docs.map((doc) => SessionRecord.fromMap(doc.data())).toList();
-
+      _history = historySnapshot.docs
+          .map((doc) => SessionRecord.fromMap(doc.data()))
+          .toList();
 
       notifyListeners();
     } catch (e) {
@@ -245,14 +320,23 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       debugPrint("Error syncing profile: $e");
     }
   }
+
   Future<void> generateMockData() async {
     if (_userId == null) return;
     // Clear old data
-    final oldTasks = await _firestore.collection('users').doc(_userId).collection('tasks').get();
+    final oldTasks = await _firestore
+        .collection('users')
+        .doc(_userId)
+        .collection('tasks')
+        .get();
     for (var doc in oldTasks.docs) {
       await doc.reference.delete();
     }
-    final oldHistory = await _firestore.collection('users').doc(_userId).collection('history').get();
+    final oldHistory = await _firestore
+        .collection('users')
+        .doc(_userId)
+        .collection('history')
+        .get();
     for (var doc in oldHistory.docs) {
       await doc.reference.delete();
     }
@@ -262,41 +346,38 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
     // Generate exactly 6 sample tasks with random tomato counts
     final List<String> taskNames = [
-      'Implement API endpoints', 'Refactor Provider to Riverpod', 
-      'Write Unit Tests', 'Design Landing Page', 
-      'Fix Memory Leaks', 'Configure Firebase Analytics'
+      'Implement API endpoints',
+      'Refactor Provider to Riverpod',
+      'Write Unit Tests',
+      'Design Landing Page',
+      'Fix Memory Leaks',
+      'Configure Firebase Analytics',
     ];
-    
+
     for (var name in taskNames) {
       seed = (seed * 9301 + 49297) % 233280;
       int tCount = seed % 6; // 0 to 5 tomatoes
       bool isCompleted = tCount > 0 && (seed % 2 == 0); // randomly complete
-      await _firestore
-          .collection('users')
-          .doc(_userId)
-          .collection('tasks')
-          .add({
-        'title': name,
-        'isCompleted': isCompleted,
-        'tomatoCount': tCount,
-      });
+      await _firestore.collection('users').doc(_userId).collection('tasks').add(
+        {'title': name, 'isCompleted': isCompleted, 'tomatoCount': tCount},
+      );
     }
 
     // Generate history for the last 7 days exactly
     int generatedXp = 0;
     int generatedSessions = 0;
-    
+
     for (int i = 0; i < 7; i++) {
       final date = now.subtract(Duration(days: i));
-      
+
       // Randomly generate between 3 to 6 work sessions per day
       seed = (seed * 9301 + 49297) % 233280;
-      int sessionsToday = 3 + (seed % 4); 
-      
+      int sessionsToday = 3 + (seed % 4);
+
       for (int j = 0; j < sessionsToday; j++) {
         // Space them out by a few hours
         final recordDate = date.subtract(Duration(hours: j * 2));
-        
+
         final int workMinutes = 25;
 
         await _firestore
@@ -304,28 +385,32 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
             .doc(_userId)
             .collection('history')
             .add({
-          'date': recordDate.toIso8601String(),
-          'mode': TimerMode.work.index,
-          'durationMinutes': workMinutes,
-        });
-        
+              'date': recordDate.toIso8601String(),
+              'mode': TimerMode.work.index,
+              'durationMinutes': workMinutes,
+            });
+
         // Add random breaks
         if (seed % 2 == 0) {
-            seed = (seed * 9301 + 49297) % 233280;
-            int breakMinutes = [5, 15][seed % 2];
-            TimerMode breakMode = breakMinutes == 15 ? TimerMode.longBreak : TimerMode.shortBreak;
+          seed = (seed * 9301 + 49297) % 233280;
+          int breakMinutes = [5, 15][seed % 2];
+          TimerMode breakMode = breakMinutes == 15
+              ? TimerMode.longBreak
+              : TimerMode.shortBreak;
 
-            await _firestore
-                .collection('users')
-                .doc(_userId)
-                .collection('history')
-                .add({
-              'date': recordDate.add(Duration(minutes: workMinutes)).toIso8601String(),
-              'mode': breakMode.index,
-              'durationMinutes': breakMinutes,
-            });
+          await _firestore
+              .collection('users')
+              .doc(_userId)
+              .collection('history')
+              .add({
+                'date': recordDate
+                    .add(Duration(minutes: workMinutes))
+                    .toIso8601String(),
+                'mode': breakMode.index,
+                'durationMinutes': breakMinutes,
+              });
         }
-        
+
         generatedXp += 10;
         generatedSessions++;
       }
@@ -334,7 +419,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _xp = generatedXp;
     _completedWorkSessions = generatedSessions;
     await _syncProfileToCloud();
-    
+
     // Reload everything to update UI
     await _loadDataFromCloud();
   }
@@ -343,7 +428,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (_userId == null) return;
     if (title.trim().isNotEmpty) {
       final newTask = TodoTask(id: '', title: title.trim());
-      
+
       try {
         // Add to Firestore
         final docRef = await _firestore
@@ -351,14 +436,16 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
             .doc(_userId)
             .collection('tasks')
             .add(newTask.toMap());
-            
+
         // Update local state with the new cloud ID
-        _tasks.add(TodoTask(
-          id: docRef.id,
-          title: newTask.title,
-          isCompleted: newTask.isCompleted,
-          tomatoCount: newTask.tomatoCount,
-        ));
+        _tasks.add(
+          TodoTask(
+            id: docRef.id,
+            title: newTask.title,
+            isCompleted: newTask.isCompleted,
+            tomatoCount: newTask.tomatoCount,
+          ),
+        );
         notifyListeners();
       } catch (e) {
         debugPrint("Error adding task: $e");
@@ -418,24 +505,69 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   bool get isPlayingSound => _isPlayingSound;
 
   void setSound(String sound) {
-    _selectedSound = sound;
-    _syncProfileToCloud();
-    notifyListeners();
+    if (_selectedSound != sound) {
+      _selectedSound = sound;
+      if (_isPlayingSound) {
+        _isPlayingSound = false;
+        _audioPlayer.stop();
+      }
+      _saveLocalSettings();
+      _syncProfileToCloud();
+      notifyListeners();
+    }
   }
 
   void setSoundVolume(double volume) {
     _soundVolume = volume;
+    _audioPlayer.setVolume(volume);
+    _saveLocalSettings();
     _syncProfileToCloud();
     notifyListeners();
   }
 
   void toggleSoundPlay() {
     _isPlayingSound = !_isPlayingSound;
+    if (_isPlayingSound) {
+      _startPlayback();
+    } else {
+      _audioPlayer.stop();
+    }
     notifyListeners();
+  }
+
+  Future<void> _initAudio() async {
+    try {
+      final session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration.music());
+      await _audioPlayer.setLoopMode(LoopMode.one);
+      await _audioPlayer.setVolume(_soundVolume);
+    } catch (e) {
+      debugPrint("Error initializing audio: $e");
+    }
+  }
+
+  Future<void> _startPlayback() async {
+    final url = _soundUrls[_selectedSound];
+    if (url != null) {
+      try {
+        await _audioPlayer.setUrl(url);
+        await _audioPlayer.setVolume(_soundVolume);
+        await _audioPlayer.seek(Duration.zero); // Start from beginning
+        _audioPlayer.play();
+      } catch (e) {
+        debugPrint("Error playing sound: $e");
+        _isPlayingSound = false;
+        notifyListeners();
+      }
+    }
   }
 
   Future<void> _recordSessionFinished() async {
     if (_userId == null) return;
+
+    // Vibrate on session completion
+    HapticFeedback.vibrate();
+
     final record = SessionRecord(
       date: DateTime.now(),
       mode: _currentMode,
@@ -456,21 +588,20 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (_currentMode == TimerMode.work) {
       _xp += _isDeepWorkMode ? 20 : 10; // Double XP for Deep Work
       _completedWorkSessions++;
-      _syncProfileToCloud();
-      
-      // Increment tomato count for the first incomplete task
-      final firstIncomplete = _tasks.where((t) => !t.isCompleted).firstOrNull;
-      if (firstIncomplete != null) {
-        firstIncomplete.tomatoCount++;
-        notifyListeners();
-        
+
+      // Increment tomato count for the selected task if one exists
+      if (_selectedTaskId != null) {
         try {
-          await _firestore
-              .collection('users')
-              .doc(_userId)
-              .collection('tasks')
-              .doc(firstIncomplete.id)
-              .update({'tomatoCount': firstIncomplete.tomatoCount});
+          final taskIndex = _tasks.indexWhere((t) => t.id == _selectedTaskId);
+          if (taskIndex != -1) {
+            _tasks[taskIndex].tomatoCount++;
+            await _firestore
+                .collection('users')
+                .doc(_userId)
+                .collection('tasks')
+                .doc(_selectedTaskId)
+                .update({'tomatoCount': _tasks[taskIndex].tomatoCount});
+          }
         } catch (e) {
           debugPrint("Error updating tomatoCount: $e");
         }
@@ -490,7 +621,10 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (_isDeepWorkMode && _isRunning && (state == AppLifecycleState.paused || state == AppLifecycleState.inactive)) {
+    if (_isDeepWorkMode &&
+        _isRunning &&
+        (state == AppLifecycleState.paused ||
+            state == AppLifecycleState.inactive)) {
       _breakDeepWork();
     }
   }
@@ -502,7 +636,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _deepWorkBroke = true;
     _syncProfileToCloud();
     notifyListeners();
-    
+
     // Haptic feedback if on device
     HapticFeedback.heavyImpact();
   }
@@ -511,7 +645,45 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
+    _audioPlayer.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadLocalSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _workDuration = prefs.getDouble('workDuration') ?? 25.0;
+      _shortBreakDuration = prefs.getDouble('shortBreakDuration') ?? 5.0;
+      _longBreakDuration = prefs.getDouble('longBreakDuration') ?? 15.0;
+      _sessionsUntilLongBreak = prefs.getInt('sessionsUntilLongBreak') ?? 4;
+      _isDarkMode = prefs.getBool('isDarkMode') ?? false;
+      _isDeepWorkMode = prefs.getBool('isDeepWorkMode') ?? false;
+      _selectedSound = prefs.getString('selectedSound') ?? 'Lo-Fi Beats';
+      _soundVolume = prefs.getDouble('soundVolume') ?? 0.5;
+
+      if (!_isRunning) {
+        setMode(_currentMode);
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint("Error loading local settings: $e");
+    }
+  }
+
+  Future<void> _saveLocalSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble('workDuration', _workDuration);
+      await prefs.setDouble('shortBreakDuration', _shortBreakDuration);
+      await prefs.setDouble('longBreakDuration', _longBreakDuration);
+      await prefs.setInt('sessionsUntilLongBreak', _sessionsUntilLongBreak);
+      await prefs.setBool('isDarkMode', _isDarkMode);
+      await prefs.setBool('isDeepWorkMode', _isDeepWorkMode);
+      await prefs.setString('selectedSound', _selectedSound);
+      await prefs.setDouble('soundVolume', _soundVolume);
+    } catch (e) {
+      debugPrint("Error saving local settings: $e");
+    }
   }
 }
 
